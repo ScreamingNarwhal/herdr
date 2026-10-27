@@ -49,6 +49,8 @@ For internal testing, `HERDR_MANIFEST_URL` can point the installer at a custom m
 
 Local persistent sessions continue running after the client detaches or its terminal window closes. Servers and pane processes launched through Windows OpenSSH also survive logout; run `herdr` again to reconnect.
 
+When SSH starts a missing server, Herdr prefers an ordinary signed-in Windows session belonging to the same account. This lets tools use that login's desktop and sandbox context. If no such login exists, Herdr starts in the SSH session and reports that sandbox or desktop tools may be unavailable. If several logins belong to the account, start Herdr in the intended login first. Existing servers and their panes stay in their current session.
+
 Elevated Windows servers require an administrator client by default, including servers started through an elevated SSH login. Ordinary servers accept clients from ordinary and administrator terminals belonging to the same account; attaching never changes the server's privileges.
 
 To deliberately share elevated sessions with ordinary clients, set:

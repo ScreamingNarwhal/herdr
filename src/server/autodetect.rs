@@ -202,6 +202,20 @@ fn validate_running_server_compatibility(saved_federation: bool) -> io::Result<(
 ///
 /// Returns the PID of the spawned server process.
 pub fn spawn_server_daemon() -> io::Result<u32> {
+    spawn_server_daemon_with(crate::platform::launch_server_daemon_command)
+}
+
+/// Remote cold starts may need a different Windows login context from SSH.
+pub(crate) fn spawn_remote_server_daemon() -> io::Result<u32> {
+    #[cfg(windows)]
+    return spawn_server_daemon_with(crate::platform::launch_remote_server_daemon_command);
+    #[cfg(not(windows))]
+    spawn_server_daemon()
+}
+
+fn spawn_server_daemon_with(
+    launch: impl FnOnce(&mut Command) -> io::Result<u32>,
+) -> io::Result<u32> {
     let exe = std::env::current_exe().map_err(|err| {
         io::Error::new(
             err.kind(),
@@ -213,10 +227,9 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
 
     let mut command = build_server_daemon_command(exe);
 
-    let pid =
-        crate::platform::launch_server_daemon_command(&mut command).map_err(|err: io::Error| {
-            io::Error::new(err.kind(), format!("failed to spawn herdr server: {err}"))
-        })?;
+    let pid = launch(&mut command).map_err(|err: io::Error| {
+        io::Error::new(err.kind(), format!("failed to spawn herdr server: {err}"))
+    })?;
     info!(pid, "server daemon spawned");
 
     Ok(pid)

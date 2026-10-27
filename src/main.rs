@@ -518,6 +518,8 @@ fn main() -> io::Result<()> {
         }
     };
     #[cfg(windows)]
+    let raw_args = platform::bootstrap_remote_server(raw_args)?;
+    #[cfg(windows)]
     if let Some(result) = platform::maybe_activate_desktop_notification(&raw_args) {
         return result;
     }
