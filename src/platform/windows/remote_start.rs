@@ -16,7 +16,7 @@ use interprocess::os::windows::local_socket::ListenerOptionsExt as _;
 use interprocess::os::windows::security_descriptor::SecurityDescriptor;
 use serde::{Deserialize, Serialize};
 use windows::{
-    core::{Interface as _, BSTR},
+    core::{Interface as _, BSTR, HRESULT},
     Win32::{
         Foundation::{VARIANT_FALSE, VARIANT_TRUE},
         System::{
@@ -34,7 +34,7 @@ use windows::{
     },
 };
 use windows_sys::Win32::{
-    Foundation::{LocalFree, HANDLE},
+    Foundation::{LocalFree, ERROR_FILE_NOT_FOUND, HANDLE},
     Security::{
         Authorization::{ConvertSidToStringSidW, GetSecurityInfo, SE_FILE_OBJECT},
         GetTokenInformation, LookupAccountNameW, TokenElevation, TokenSessionId, TokenUser,
@@ -138,6 +138,7 @@ pub(crate) fn bootstrap_remote_server(args: Vec<String>) -> io::Result<Vec<Strin
             "invalid Windows remote server startup",
         ));
     };
+    let _cleanup = TaskActionCleanup(pipe);
     let mut stream = crate::ipc::connect_local_stream(Path::new(pipe))?;
     stream.set_nonblocking(true)?;
     let deadline = Instant::now() + START_TIMEOUT;
@@ -389,12 +390,8 @@ fn start_task(
     session: u32,
     pipe: &str,
 ) -> io::Result<TaskRegistration> {
-    let _com = ComApartment::initialize()?;
+    let (_com, service) = task_service()?;
     let empty = VARIANT::default();
-    let service: ITaskService =
-        unsafe { CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER) }
-            .map_err(task_error)?;
-    unsafe { service.Connect(&empty, &empty, &empty, &empty) }.map_err(task_error)?;
     let root = unsafe { service.GetFolder(&BSTR::from(r"\")) }.map_err(task_error)?;
     let definition = unsafe { service.NewTask(0) }.map_err(task_error)?;
     let principal = unsafe { definition.Principal() }.map_err(task_error)?;
@@ -439,7 +436,8 @@ fn start_task(
             .and_then(|()| action.SetArguments(&BSTR::from(arguments)))
     }
     .map_err(task_error)?;
-    let name = BSTR::from(format!("Herdr Remote Start {pipe}"));
+    let name = task_name(pipe);
+    let security = VARIANT::from(BSTR::from(format!("O:{sid}D:P(A;;GA;;;SY)(A;;GA;;;{sid})")));
     let registered = unsafe {
         root.RegisterTaskDefinition(
             &name,
@@ -448,7 +446,7 @@ fn start_task(
             &empty,
             &empty,
             TASK_LOGON_INTERACTIVE_TOKEN,
-            &empty,
+            &security,
         )
     }
     .map_err(task_error)?;
@@ -480,7 +478,7 @@ struct TaskRegistration {
 
 impl TaskRegistration {
     fn remove(mut self) -> io::Result<()> {
-        unsafe { self.root.DeleteTask(&self.name, 0) }.map_err(task_error)?;
+        remove_task(&self.root, &self.name)?;
         self.removed = true;
         Ok(())
     }
@@ -490,11 +488,47 @@ impl Drop for TaskRegistration {
     fn drop(&mut self) {
         if !self.removed {
             // Removing a registration never stops its admitted server process.
-            if let Err(error) = unsafe { self.root.DeleteTask(&self.name, 0) } {
+            if let Err(error) = remove_task(&self.root, &self.name) {
                 tracing::warn!(%error, "could not remove temporary remote start registration");
             }
         }
     }
+}
+
+struct TaskActionCleanup<'a>(&'a str);
+
+impl Drop for TaskActionCleanup<'_> {
+    fn drop(&mut self) {
+        let result = (|| {
+            let (_com, service) = task_service()?;
+            let root = unsafe { service.GetFolder(&BSTR::from(r"\")) }.map_err(task_error)?;
+            remove_task(&root, &task_name(self.0))
+        })();
+        if let Err(error) = result {
+            tracing::warn!(%error, "could not remove temporary remote start registration");
+        }
+    }
+}
+
+fn task_name(pipe: &str) -> BSTR {
+    BSTR::from(format!("Herdr Remote Start {pipe}"))
+}
+
+fn remove_task(root: &ITaskFolder, name: &BSTR) -> io::Result<()> {
+    match unsafe { root.DeleteTask(name, 0) } {
+        Err(error) if error.code() == HRESULT::from_win32(ERROR_FILE_NOT_FOUND) => Ok(()),
+        result => result.map_err(task_error),
+    }
+}
+
+fn task_service() -> io::Result<(ComApartment, ITaskService)> {
+    let com = ComApartment::initialize()?;
+    let service: ITaskService =
+        unsafe { CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER) }
+            .map_err(task_error)?;
+    let empty = VARIANT::default();
+    unsafe { service.Connect(&empty, &empty, &empty, &empty) }.map_err(task_error)?;
+    Ok((com, service))
 }
 
 fn task_error(error: windows::core::Error) -> io::Error {
@@ -723,6 +757,21 @@ impl Drop for WtsMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_task_registration_is_already_clean() {
+        let (_com, service) = task_service().unwrap();
+        let root = unsafe { service.GetFolder(&BSTR::from(r"\")) }.unwrap();
+        let name = task_name(&format!(
+            "cleanup-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        remove_task(&root, &name).unwrap();
+    }
 
     #[test]
     fn remote_bootstrap_preserves_identity_precedence_and_cwd() {
