@@ -205,17 +205,7 @@ pub(crate) fn launch_remote_server_daemon_command(command: &mut Command) -> io::
     let task = start_task(command, &identity.sid, session, &name)?;
     let outcome = (|| {
         let deadline = Instant::now() + START_TIMEOUT;
-        let mut stream = loop {
-            match listener.accept() {
-                Ok(stream) => break stream,
-                Err(error)
-                    if error.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
-                {
-                    std::thread::sleep(POLL)
-                }
-                Err(error) => return Err(error),
-            }
-        };
+        let mut stream = accept_task_action(&listener, deadline)?;
         let pid = peer_pid(&stream)?;
         let peer = process_identity(pid)?;
         if peer.sid != identity.sid || peer.session != session || peer.elevated {
@@ -261,6 +251,24 @@ fn peer_pid(stream: &crate::ipc::LocalStream) -> io::Result<u32> {
         .peer_creds()?
         .pid()
         .ok_or_else(|| io::Error::other("Windows startup pipe did not report its peer process"))
+}
+
+fn accept_task_action(
+    listener: &crate::ipc::LocalListener,
+    deadline: Instant,
+) -> io::Result<crate::ipc::LocalStream> {
+    loop {
+        match listener.accept() {
+            Ok(stream) => return Ok(stream),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, format!("Herdr did not start in the signed-in Windows session within {}s; try connecting again", START_TIMEOUT.as_secs())));
+                }
+                std::thread::sleep(POLL);
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 fn verify_starter_owner(stream: &crate::ipc::LocalStream, account: &str) -> io::Result<()> {
@@ -841,8 +849,17 @@ mod tests {
             .security_descriptor(startup_security_descriptor(&account).unwrap())
             .create_sync()
             .unwrap();
+        listener
+            .set_nonblocking(ListenerNonblockingMode::Both)
+            .unwrap();
+        assert_eq!(
+            accept_task_action(&listener, Instant::now())
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::TimedOut
+        );
         let mut client = crate::ipc::connect_local_stream(Path::new(&name)).unwrap();
-        let mut server = listener.accept().unwrap();
+        let mut server = accept_task_action(&listener, Instant::now() + START_TIMEOUT).unwrap();
         verify_starter_owner(&client, &account).unwrap();
         client.set_nonblocking(true).unwrap();
         server.set_nonblocking(true).unwrap();
