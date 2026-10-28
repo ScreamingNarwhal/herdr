@@ -207,8 +207,14 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
 
 /// Remote cold starts may need a different Windows login context from SSH.
 pub(crate) fn spawn_remote_server_daemon() -> io::Result<u32> {
+    spawn_remote_server_daemon_with_headless(false)
+}
+
+pub(crate) fn spawn_remote_server_daemon_with_headless(_allow_headless: bool) -> io::Result<u32> {
     #[cfg(windows)]
-    return spawn_server_daemon_with(crate::platform::launch_remote_server_daemon_command);
+    return spawn_server_daemon_with(|command| {
+        crate::platform::launch_remote_server_daemon_command(command, _allow_headless)
+    });
     #[cfg(not(windows))]
     spawn_server_daemon()
 }
@@ -228,7 +234,11 @@ fn spawn_server_daemon_with(
     let mut command = build_server_daemon_command(exe);
 
     let pid = launch(&mut command).map_err(|err: io::Error| {
-        io::Error::new(err.kind(), format!("failed to spawn herdr server: {err}"))
+        if crate::platform::is_windows_sign_in_required(&err) {
+            err
+        } else {
+            io::Error::new(err.kind(), format!("failed to spawn herdr server: {err}"))
+        }
     })?;
     info!(pid, "server daemon spawned");
 
@@ -362,6 +372,19 @@ mod windows_tests {
     use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
     use interprocess::os::windows::local_socket::ListenerOptionsExt as _;
     use interprocess::os::windows::security_descriptor::SecurityDescriptor;
+
+    #[test]
+    fn remote_sign_in_denial_survives_spawn_context() {
+        let error = spawn_server_daemon_with(|_| {
+            Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                crate::platform::WindowsSignInRequired,
+            ))
+        })
+        .unwrap_err();
+        assert!(crate::platform::is_windows_sign_in_required(&error));
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+    }
 
     #[test]
     fn reachability_distinguishes_denied_silent_busy_and_absent_pipes() {

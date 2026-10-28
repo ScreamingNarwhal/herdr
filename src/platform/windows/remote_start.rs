@@ -176,11 +176,15 @@ pub(crate) fn bootstrap_remote_server(args: Vec<String>) -> io::Result<Vec<Strin
     result
 }
 
-pub(crate) fn launch_remote_server_daemon_command(command: &mut Command) -> io::Result<u32> {
+pub(crate) fn launch_remote_server_daemon_command(
+    command: &mut Command,
+    allow_headless: bool,
+) -> io::Result<u32> {
     let identity = process_identity(std::process::id())?;
     let sessions = eligible_sessions(&identity.sid)?;
     let session = match sessions.as_slice() {
         [] => {
+            require_headless_remote_start(allow_headless)?;
             eprintln!("No signed-in Windows session is available. Starting Herdr in the SSH session; Codex sandbox and desktop tools may be unavailable.");
             tracing::warn!("No signed-in Windows session; starting remote server in the SSH session");
             return super::launch_server_daemon_command(command);
@@ -244,6 +248,38 @@ pub(crate) fn launch_remote_server_daemon_command(command: &mut Command) -> io::
     })();
     task.remove()?;
     outcome
+}
+
+#[derive(Debug)]
+pub(crate) struct WindowsSignInRequired;
+
+impl std::fmt::Display for WindowsSignInRequired {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Waiting for Windows sign-in. Sign in to this host with the same Windows account. Saved connections retry automatically; interactive herdr --remote can wait or offer a deliberate Session 0 start. For intentional headless startup, set server.allow_headless_remote_start = true in this host's config.")
+    }
+}
+
+impl std::error::Error for WindowsSignInRequired {}
+
+pub(crate) fn is_windows_sign_in_required(error: &io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|cause| cause.is::<WindowsSignInRequired>())
+}
+
+fn require_headless_remote_start(allow_headless: bool) -> io::Result<()> {
+    let loaded = crate::config::Config::load();
+    if let Some(summary) = crate::config::config_diagnostic_summary(&loaded.diagnostics) {
+        eprintln!("{summary}");
+    }
+    if allow_headless || loaded.config.server.allow_headless_remote_start {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            WindowsSignInRequired,
+        ))
+    }
 }
 
 fn peer_pid(stream: &crate::ipc::LocalStream) -> io::Result<u32> {
@@ -765,6 +801,56 @@ impl Drop for WtsMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_login_fallback_requires_valid_host_config_opt_in() {
+        const CASE: &str = "HERDR_TEST_HEADLESS_REMOTE_START_CASE";
+        if let Ok(case) = std::env::var(CASE) {
+            let result = require_headless_remote_start(false);
+            if case == "enabled" {
+                result.unwrap();
+            } else {
+                let error = result.unwrap_err();
+                assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+                assert!(is_windows_sign_in_required(&error));
+                assert!(error.to_string().contains("Waiting for Windows sign-in"));
+                require_headless_remote_start(true).unwrap();
+            }
+            return;
+        }
+        let root = std::env::temp_dir().join(format!(
+            "herdr-no-login-policy-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        for (case, content) in [
+            ("missing", None),
+            ("disabled", Some("[server]\nallow_headless_remote_start = false\n")),
+            ("enabled", Some("[server]\nallow_headless_remote_start = true\nfuture_option = true\n[future]\noption = true\n")),
+            ("wrong_type", Some("[server]\nallow_headless_remote_start = 'true'\n")),
+            ("invalid_other_field", Some("[server]\nallow_headless_remote_start = true\nheadless_cols = 'wide'\n")),
+            ("malformed", Some("[server]\nallow_headless_remote_start = true\n[")),
+            ("unreadable", None),
+        ] {
+            let path = root.join(case);
+            if let Some(content) = content {
+                std::fs::write(&path, content).unwrap();
+            } else if case == "unreadable" {
+                std::fs::create_dir(&path).unwrap();
+            }
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "platform::windows::remote_start::tests::no_login_fallback_requires_valid_host_config_opt_in", "--nocapture"])
+                .env(CASE, case)
+                .env(crate::config::CONFIG_PATH_ENV_VAR, path)
+                .status().unwrap();
+            assert!(status.success(), "no-login policy case {case} failed");
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn missing_task_registration_is_already_clean() {

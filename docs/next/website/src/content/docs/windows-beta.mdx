@@ -49,7 +49,20 @@ For internal testing, `HERDR_MANIFEST_URL` can point the installer at a custom m
 
 Local persistent sessions continue running after the client detaches or its terminal window closes. Servers and pane processes launched through Windows OpenSSH also survive logout; run `herdr` again to reconnect.
 
-When SSH starts a missing server, Herdr prefers an ordinary signed-in Windows session belonging to the same account. This lets tools use that login's desktop and sandbox context. If no such login exists, Herdr starts in the SSH session and reports that sandbox or desktop tools may be unavailable. If several logins belong to the account, start Herdr in the intended login first. Existing servers and their panes stay in their current session.
+When SSH starts a missing server, Herdr uses an ordinary signed-in Windows session belonging to the same account. This lets tools use that login's desktop and sandbox context. If no such login exists, startup reports **Waiting for Windows sign-in** and does not start a server. Sign in to the Windows host with the same account: saved connections retry automatically, and an interactive `herdr --remote` stays open and retries before opening the TUI. A disconnected but still signed-in Windows session remains eligible. If several logins belong to the account, start Herdr in the intended login first. Existing servers and their panes stay in their current session, including servers already running in Session 0.
+
+While an interactive command waits, **Esc** or **Ctrl+C** cancels. **F** deliberately starts in the SSH session (normally Session 0) for that attempt; the prompt warns that this may break Codex sandbox, computer use and desktop tools. This choice does not change the host's config. Saved connections never prompt or force startup. Waiting retries use normal SSH authentication; authentication or other startup failures are reported rather than treated as a missing login. Keyboard choices are handled between SSH operations, so an in-flight SSH request retains its usual latency. Non-terminal commands report the sign-in requirement without prompting.
+
+Waiting and the one-attempt force choice require an updated Windows host binary. Older compatible running servers remain attachable; for an older stopped host, update Herdr on the host or start it from the Windows desktop first.
+
+For a host that deliberately runs without a Windows sign-in, opt into SSH-context startup in the **Windows host's** `%APPDATA%\herdr\config.toml` (or its existing `HERDR_CONFIG_PATH` / `XDG_CONFIG_HOME` override):
+
+```toml
+[server]
+allow_headless_remote_start = true
+```
+
+This Windows-only setting is false by default and is read on each cold start with no eligible login. Missing, unreadable or invalid config cannot enable automatic fallback; unknown config fields are tolerated. Config diagnostics remain visible even when you deliberately force a start. The fallback may lack Codex sandbox or desktop support. It does not bypass account, session or privilege checks, resolve multiple-login ambiguity, or retry a failed or uncertain desktop launch in Session 0. Local startup and already-running servers are unaffected.
 
 Elevated Windows servers require an administrator client by default, including servers started through an elevated SSH login. Ordinary servers accept clients from ordinary and administrator terminals belonging to the same account; attaching never changes the server's privileges.
 

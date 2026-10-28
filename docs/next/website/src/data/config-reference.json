@@ -17,6 +17,12 @@
       "title": "Server",
       "keys": [
         {
+          "key": "server.allow_headless_remote_start",
+          "type": "boolean",
+          "default": "false",
+          "description": "Windows only: allow a remote cold start in the SSH session when no signed-in Windows session belongs to the same account. By default saved connections retry and interactive --remote waits with a deliberate one-attempt force choice. This fallback may break Codex sandbox, computer use and desktop tools. Existing servers, multiple-login ambiguity and account/session/privilege checks are unchanged. Read on each no-login cold start from the host config."
+        },
+        {
           "key": "server.allow_unelevated_clients",
           "type": "boolean",
           "default": "false",
