@@ -183,10 +183,6 @@ fn validate_running_server_compatibility(saved_federation: bool) -> io::Result<(
 ///   this CLI invocation explicitly selected a session.
 ///
 /// Returns the PID of the spawned server process.
-pub fn spawn_server_daemon() -> io::Result<u32> {
-    spawn_server_daemon_at_epoch(crate::server::lifecycle::launch_epoch()?)
-}
-
 pub(crate) fn spawn_server_daemon_at_epoch(epoch: u64) -> io::Result<u32> {
     let exe = std::env::current_exe().map_err(|err| {
         io::Error::new(
@@ -301,6 +297,9 @@ pub fn auto_detect_launch(saved_federation: bool) -> io::Result<()> {
     let socket_path = client_socket_path();
     info!(path = %socket_path.display(), "auto-detect launch starting");
 
+    // A stop/delete after this observation must revoke this launch decision.
+    // Receipt errors must still allow attachment to an already-running server.
+    let epoch = crate::server::lifecycle::launch_epoch();
     let startup = is_server_listening().and_then(|listening| {
         if listening {
             info!("server already running, attaching as client");
@@ -311,7 +310,7 @@ pub fn auto_detect_launch(saved_federation: bool) -> io::Result<()> {
             }
         } else {
             info!("no server running, spawning server daemon");
-            spawn_server_daemon()
+            spawn_server_daemon_at_epoch(epoch?)
                 .and_then(|_| wait_for_server_socket(&socket_path, SERVER_READY_TIMEOUT))
         }
     });
