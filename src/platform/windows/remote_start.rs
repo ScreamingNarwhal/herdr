@@ -246,12 +246,30 @@ pub(crate) fn launch_remote_server_daemon_command(
         }
         Ok(pid)
     })();
-    task.remove()?;
-    outcome
+    finish_start_attempt(outcome, task.remove())
 }
 
-#[derive(Debug)]
+fn finish_start_attempt(startup: io::Result<u32>, cleanup: io::Result<()>) -> io::Result<u32> {
+    match (startup, cleanup) {
+        (Err(startup), Err(cleanup)) => Err(io::Error::new(
+            startup.kind(),
+            format!("{startup}; startup task cleanup also failed: {cleanup}"),
+        )),
+        (Ok(_), Err(cleanup)) => Err(io::Error::new(
+            cleanup.kind(),
+            format!("could not remove temporary startup task: {cleanup}"),
+        )),
+        (startup, Ok(())) => startup,
+    }
+}
+
 pub(crate) struct WindowsSignInRequired;
+
+impl std::fmt::Debug for WindowsSignInRequired {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, formatter)
+    }
+}
 
 impl std::fmt::Display for WindowsSignInRequired {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -805,6 +823,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn start_attempt_keeps_startup_primary_and_cleanup_failure_visible() {
+        let error = finish_start_attempt(
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "wrong startup identity",
+            )),
+            Err(io::Error::other("scheduler unavailable")),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(error.to_string().contains("wrong startup identity"));
+        assert!(error.to_string().contains("scheduler unavailable"));
+        let error = finish_start_attempt(
+            Ok(42),
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "cleanup denied",
+            )),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(error.to_string().contains("cleanup denied"));
+        let error = finish_start_attempt(
+            Err(io::Error::new(io::ErrorKind::TimedOut, "startup timed out")),
+            Ok(()),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(error.to_string(), "startup timed out");
+        assert_eq!(finish_start_attempt(Ok(42), Ok(())).unwrap(), 42);
+    }
+
+    #[test]
     fn no_login_fallback_requires_valid_host_config_opt_in() {
         const CASE: &str = "HERDR_TEST_HEADLESS_REMOTE_START_CASE";
         if let Ok(case) = std::env::var(CASE) {
@@ -816,6 +867,8 @@ mod tests {
                 assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
                 assert!(is_windows_sign_in_required(&error));
                 assert!(error.to_string().contains("Waiting for Windows sign-in"));
+                // main's Result termination reports io::Error through Debug.
+                assert!(format!("{error:?}").contains("Waiting for Windows sign-in"));
                 require_headless_remote_start(true).unwrap();
             }
             return;
