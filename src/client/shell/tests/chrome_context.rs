@@ -576,12 +576,13 @@ fn global_menu_command_click_dispatches_the_same_invocation_as_its_key() {
         .copied()
         .find(|(_, index)| *index == 3)
         .expect("custom command menu row");
-    let click = clicked.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: row.x,
-        row: row.y,
-        modifiers: KeyModifiers::empty(),
-    })]);
+    let click =
+        clicked.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: row.x,
+            row: row.y,
+            modifiers: KeyModifiers::empty(),
+        })]);
     assert!(clicked.overlay.is_none());
     let click_method = only_endpoint_method(&click.actions);
 
