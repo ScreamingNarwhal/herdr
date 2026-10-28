@@ -3466,7 +3466,9 @@ impl Drop for InputSourceRestore {
     }
 }
 
-pub(crate) fn server_lifecycle_identity(path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+pub(crate) fn server_lifecycle_identity(
+    path: &std::path::Path,
+) -> std::io::Result<(Vec<u8>, std::path::PathBuf)> {
     use std::os::windows::ffi::OsStrExt as _;
     use windows_sys::Win32::Globalization::{
         LCMapStringEx, LCMAP_UPPERCASE, LOCALE_NAME_INVARIANT,
@@ -3507,7 +3509,10 @@ pub(crate) fn server_lifecycle_identity(path: &std::path::Path) -> std::io::Resu
     if written == 0 {
         return Err(std::io::Error::last_os_error());
     }
-    Ok(normalized.into_iter().flat_map(u16::to_le_bytes).collect())
+    Ok((
+        normalized.into_iter().flat_map(u16::to_le_bytes).collect(),
+        std::path::absolute(path)?,
+    ))
 }
 
 #[cfg(test)]

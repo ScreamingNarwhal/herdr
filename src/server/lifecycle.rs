@@ -26,9 +26,8 @@ pub(super) fn receipt_path(api_path: &Path) -> io::Result<PathBuf> {
 }
 
 fn sidecar_path(api_path: &Path, suffix: &str) -> io::Result<PathBuf> {
-    let identity = crate::platform::server_lifecycle_identity(api_path)?;
+    let (identity, absolute) = crate::platform::server_lifecycle_identity(api_path)?;
     let key = format!("{:x}", Sha256::digest(identity));
-    let absolute = std::path::absolute(api_path)?;
     let parent = absolute.parent().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "invalid server endpoint path")
     })?;
@@ -185,26 +184,36 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
+        #[cfg(unix)]
+        {
+            std::fs::create_dir_all(base.join("hop")).unwrap();
+            std::os::unix::fs::symlink(&base, base.join("link")).unwrap();
+        }
         for path in [
             base.join("server.sock"),
             base.join("sessions/named/server.sock"),
         ] {
             #[cfg(windows)]
-            let alias = PathBuf::from(path.to_string_lossy().to_uppercase());
+            let aliases = vec![PathBuf::from(path.to_string_lossy().to_uppercase())];
             #[cfg(not(windows))]
-            let alias = path
-                .parent()
-                .unwrap()
-                .join(".")
-                .join(path.file_name().unwrap());
+            let aliases = vec![
+                path.parent()
+                    .unwrap()
+                    .join(".")
+                    .join(path.file_name().unwrap()),
+                base.join("link/hop/..")
+                    .join(path.strip_prefix(&base).unwrap()),
+            ];
             let mut guard = lock(&path).unwrap();
             guard.commit(false).unwrap();
-            assert_eq!(
-                lock(&alias).err().unwrap().kind(),
-                io::ErrorKind::WouldBlock
-            );
+            for alias in &aliases {
+                assert_eq!(lock(alias).err().unwrap().kind(), io::ErrorKind::WouldBlock);
+                assert_eq!(read(alias).unwrap().epoch, guard.receipt.epoch);
+                #[cfg(unix)]
+                assert_eq!(receipt_path(alias).unwrap(), receipt_path(&path).unwrap());
+            }
             let waiter = std::thread::spawn({
-                let alias = alias.clone();
+                let alias = aliases.last().unwrap().clone();
                 move || lock_for_start(&alias).unwrap()
             });
             guard.commit(true).unwrap();
@@ -213,6 +222,14 @@ mod tests {
             assert!(admitted.receipt.stopped);
             assert!(admitted.require_epoch(1).is_err());
             drop(admitted);
+            if path.parent().unwrap().file_name().unwrap() == "named" {
+                let receipt = receipt_path(&path).unwrap();
+                assert!(!path.parent().unwrap().exists());
+                std::fs::create_dir(path.parent().unwrap()).unwrap();
+                assert_eq!(receipt_path(&path).unwrap(), receipt);
+                std::fs::remove_dir(path.parent().unwrap()).unwrap();
+                assert_eq!(receipt_path(&path).unwrap(), receipt);
+            }
             let starts = std::thread::scope(|scope| {
                 let attempt = || {
                     let mut guard = lock_for_start(&path).unwrap();
@@ -224,6 +241,15 @@ mod tests {
             });
             assert_eq!(starts.iter().filter(|result| result.is_ok()).count(), 1);
             remove_test_receipt(&path);
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(base.join("absent"), base.join("dangling")).unwrap();
+            std::os::unix::fs::symlink("loop", base.join("loop")).unwrap();
+            for directory in ["dangling", "loop"] {
+                assert!(lock(&base.join(directory).join("server.sock")).is_err());
+            }
+            assert!(!base.join("absent").exists());
         }
         std::fs::remove_dir_all(base).unwrap();
     }
