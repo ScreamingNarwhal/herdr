@@ -1335,14 +1335,16 @@ fn federated_client_starts_without_local_and_survives_its_restart() {
     .unwrap();
     wait_for_socket(&remote_api, REMOTE_READY_TIMEOUT);
     let created = send_json_request(&remote_api, &serde_json::json!({
-        "id":"named-returned", "method":"workspace.create", "params":{"cwd":base,"label":"named-start-returned","focus":true}
+        "id":"named-returned", "method":"workspace.create", "params":{"cwd":base,"label":"named-returned","focus":true}
     }).to_string());
     assert!(created.get("error").is_none(), "{created}");
-    assert!(wait_until(
-        REMOTE_READY_TIMEOUT,
-        Duration::from_millis(20),
-        || screen_text().contains("named-start-returned")
-    ));
+    assert!(
+        wait_until(REMOTE_READY_TIMEOUT, Duration::from_millis(20), || {
+            screen_text().contains("named-returned")
+        }),
+        "saved Start must reconnect to the named session: {}",
+        screen_text()
+    );
     assert!(default_server.child.try_wait().unwrap().is_none());
     assert_eq!(
         default_epoch(),

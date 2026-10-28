@@ -118,7 +118,15 @@ pub(crate) fn check_saved_ssh(target: &str, session: &str) -> io::Result<()> {
         let remote = find_installed_remote_herdr(&ssh)?;
         if let Some(status) = remote_host_status(&ssh, &remote)? {
             if status.inactive() {
-                return Err(io::Error::other(status));
+                return Err(io::Error::other(format!(
+                    "Server {}. Use Start in Herdr or run `{}`.",
+                    if status.state == super::HostState::Stopped {
+                        "stopped"
+                    } else {
+                        "is not running"
+                    },
+                    super::saved_ssh_bootstrap_command(target, session)
+                )));
             }
         }
         match remote_server_status(&ssh, &remote, false)? {

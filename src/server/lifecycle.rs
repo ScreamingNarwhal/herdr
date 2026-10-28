@@ -155,7 +155,7 @@ impl Guard {
 }
 
 pub(crate) fn launch_epoch() -> io::Result<u64> {
-    Ok(lock(&crate::api::socket_path())?.receipt.epoch)
+    Ok(lock_for_start(&crate::api::socket_path())?.receipt.epoch)
 }
 
 pub(crate) fn take_expected_epoch() -> io::Result<Option<u64>> {

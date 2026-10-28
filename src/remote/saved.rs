@@ -22,8 +22,10 @@ pub(crate) fn start_saved_ssh(
     target: &str,
     session: &str,
     epoch: u64,
+    cancelled: Arc<AtomicBool>,
 ) -> io::Result<()> {
-    let ssh = validated_saved_ssh(profile_id, target, session)?;
+    let mut ssh = validated_saved_ssh(profile_id, target, session)?;
+    ssh.cancelled = cancelled;
     ssh.prepare_shared_transport()?;
     let remote = find_installed_remote_herdr(&ssh)?;
     super::attach::start_remote_host(&ssh, &remote, epoch)
@@ -232,6 +234,19 @@ fn validate_profile_path_id(profile_id: &str) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancelled_saved_start_does_not_contact_the_host() {
+        let error = start_saved_ssh(
+            "0123456789abcdef0123456789abcdef",
+            "cancelled.invalid",
+            "default",
+            0,
+            Arc::new(AtomicBool::new(true)),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::ConnectionAborted);
+    }
 
     #[test]
     fn bridge_paths_use_profile_identity_not_target_or_session() {

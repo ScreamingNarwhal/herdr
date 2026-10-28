@@ -519,6 +519,7 @@ fn connect_once(
                     &profile.target,
                     &profile.session,
                     epoch,
+                    Arc::clone(&cancelled),
                 )?;
             }
             let connected = crate::remote::connect_saved_ssh(
