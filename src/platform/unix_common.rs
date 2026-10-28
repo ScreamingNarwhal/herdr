@@ -493,6 +493,11 @@ pub(crate) fn create_remote_ssh_config_file(path: &Path) -> std::io::Result<std:
         .open(path)
 }
 
+pub(crate) fn server_lifecycle_identity(path: &Path) -> std::io::Result<Vec<u8>> {
+    let path = std::path::absolute(path)?;
+    Ok(path.as_os_str().as_encoded_bytes().to_vec())
+}
+
 pub(crate) fn create_remote_private_dir(path: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
 
