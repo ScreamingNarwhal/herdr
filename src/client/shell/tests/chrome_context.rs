@@ -427,6 +427,198 @@ fn global_menu_opens_from_sidebar_and_routes_client_actions() {
     assert!(state.overlay.is_none());
 }
 
+fn menu_command(
+    command_id: &str,
+    binding_label: &str,
+    action: crate::protocol::ClientShellCommandAction,
+    description: Option<&str>,
+    menu: bool,
+) -> crate::protocol::ClientShellCommand {
+    crate::protocol::ClientShellCommand {
+        command_id: command_id.into(),
+        binding_label: binding_label.into(),
+        binding_labels: vec![binding_label.into()],
+        action,
+        description: description.map(Into::into),
+        menu,
+    }
+}
+
+fn only_endpoint_method(actions: &[ClientShellAction]) -> &crate::api::schema::Method {
+    let [ClientShellAction::Endpoint { request, .. }] = actions else {
+        panic!("expected one endpoint request");
+    };
+    &request.method
+}
+
+#[test]
+fn global_menu_lists_opted_in_commands_before_detach_in_config_order() {
+    use super::super::global_menu::{
+        global_menu_item_has_badge, global_menu_items, ClientGlobalMenuAction,
+    };
+
+    let mut projection = snapshot();
+    projection.commands = vec![
+        menu_command(
+            "cmd_resume",
+            "prefix+y",
+            crate::protocol::ClientShellCommandAction::Popup,
+            Some("resume an idle session"),
+            true,
+        ),
+        menu_command(
+            "cmd_hidden",
+            "prefix+u",
+            crate::protocol::ClientShellCommandAction::Shell,
+            Some("not in the menu"),
+            false,
+        ),
+        menu_command(
+            "cmd_unlabelled",
+            "prefix+o",
+            crate::protocol::ClientShellCommandAction::Shell,
+            None,
+            true,
+        ),
+        menu_command(
+            "cmd_future",
+            "prefix+i",
+            crate::protocol::ClientShellCommandAction::Unknown,
+            Some("future action"),
+            true,
+        ),
+    ];
+
+    let items = global_menu_items(&projection);
+    let labels = items.iter().map(|(label, _)| *label).collect::<Vec<_>>();
+    assert_eq!(
+        labels,
+        [
+            "settings",
+            "keybinds",
+            "reload config",
+            "resume an idle session",
+            "prefix+o",
+            "detach",
+        ]
+    );
+    assert_eq!(items[3].1, ClientGlobalMenuAction::Command(0));
+    assert_eq!(items[4].1, ClientGlobalMenuAction::Command(2));
+    assert!(!global_menu_item_has_badge(&projection, items[3].1));
+
+    projection.latest_release_notes_available = true;
+    let labels = global_menu_items(&projection)
+        .into_iter()
+        .map(|(label, _)| label)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        labels.join("|"),
+        "settings|keybinds|reload config|what's new|resume an idle session|prefix+o|detach"
+    );
+}
+
+#[test]
+fn global_menu_command_click_dispatches_the_same_invocation_as_its_key() {
+    let mut projection = snapshot();
+    projection.commands.push(menu_command(
+        "cmd_resume",
+        "prefix+y",
+        crate::protocol::ClientShellCommandAction::Popup,
+        Some("resume an idle session"),
+        true,
+    ));
+
+    let mut keyed = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    keyed.set_snapshot(Box::new(projection.clone()));
+    keyed.set_pane_surface(surface());
+    let binding = keyed
+        .config
+        .keybinds
+        .keybinds
+        .custom_commands
+        .iter()
+        .find(|binding| binding.command == "cmd_resume")
+        .cloned()
+        .expect("menu command keeps its key binding");
+    assert!(binding.menu);
+    let mut outcome = ClientShellInput::default();
+    keyed.record_binding(crate::input::KeybindMatch::Command(binding), &mut outcome);
+    let key_method = only_endpoint_method(&outcome.actions);
+
+    let mut clicked = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    clicked.set_snapshot(Box::new(projection));
+    clicked.set_pane_surface(surface());
+    clicked.compose(106, 30).expect("shell frame");
+    let launcher = clicked.hits.global_launcher;
+    clicked.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: launcher.x,
+        row: launcher.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    let menu = clicked.compose(106, 30).expect("global menu");
+    let text = menu
+        .cells
+        .chunks(menu.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("resume an idle session"));
+
+    let (row, _) = clicked
+        .hits
+        .global_menu_rows
+        .iter()
+        .copied()
+        .find(|(_, index)| *index == 3)
+        .expect("custom command menu row");
+    let click = clicked.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: row.x,
+        row: row.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(clicked.overlay.is_none());
+    let click_method = only_endpoint_method(&click.actions);
+
+    assert_eq!(click_method, key_method);
+    let crate::api::schema::Method::CommandInvoke(params) = click_method else {
+        panic!("expected command.invoke");
+    };
+    assert_eq!(params.command_id, "cmd_resume");
+    assert_eq!(params.pane_id.as_deref(), Some("pane_1"));
+    assert!(keyed.popup_pending);
+    assert!(clicked.popup_pending);
+}
+
+#[test]
+fn global_menu_command_without_a_local_key_still_invokes_the_endpoint_id() {
+    let mut projection = snapshot();
+    projection.commands.push(menu_command(
+        "cmd_remote_only",
+        "prefix+y",
+        crate::protocol::ClientShellCommandAction::Shell,
+        Some("remote command"),
+        true,
+    ));
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(projection));
+    state.set_pane_surface(surface());
+    state.config.keybinds.keybinds.custom_commands.clear();
+
+    let mut outcome = ClientShellInput::default();
+    state.activate_global_menu_item(3, &mut outcome);
+    let method = only_endpoint_method(&outcome.actions);
+    let crate::api::schema::Method::CommandInvoke(params) = method else {
+        panic!("expected command.invoke");
+    };
+    assert_eq!(params.command_id, "cmd_remote_only");
+}
+
 #[test]
 fn new_tab_overlay_owns_text_cursor_and_submits_public_api_request() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));

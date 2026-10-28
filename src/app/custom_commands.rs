@@ -62,6 +62,7 @@ impl App {
                 binding_labels: entry.binding.bindings.labels(),
                 action: entry.action,
                 description: entry.binding.description.clone(),
+                menu: entry.binding.menu,
             })
             .collect()
     }
@@ -590,6 +591,7 @@ mod tests {
             description: Some("safe description".into()),
             width: None,
             height: None,
+            menu: false,
         }
     }
 
@@ -611,6 +613,22 @@ mod tests {
             app.resolve_client_shell_command(&manifest[0].command_id)
                 .map(|binding| binding.command),
             Some("secret-command --token hidden".into())
+        );
+        assert!(!manifest[0].menu);
+    }
+
+    #[test]
+    fn manifest_carries_menu_flag() {
+        let mut app = test_app();
+        let mut listed = binding(crate::config::CustomCommandAction::Popup);
+        listed.menu = true;
+        install(&mut app, listed);
+        let manifest = app.client_shell_command_manifest();
+        assert_eq!(manifest.len(), 1);
+        assert!(manifest[0].menu);
+        assert_eq!(
+            manifest[0].action,
+            crate::protocol::ClientShellCommandAction::Popup
         );
     }
 

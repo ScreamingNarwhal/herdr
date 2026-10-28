@@ -238,6 +238,8 @@ description = "apply layout"
 
 任意で `description` を指定できます。指定すると、キーバインドヘルプパネル（`prefix+?` で開く）に、デフォルトの `'custom command'` ラベルの代わりに表示されます。
 
+`menu` は任意で、デフォルトは `false` です。`menu = true` を指定すると、コマンドがグローバルメニューにも表示され、`description`（未指定の場合はキー）がラベルになります。メニューのコマンドは設定順に `detach` のすぐ上に並び、選ぶとそのキーを押したときとまったく同じようにコマンドが実行されます。
+
 カスタムコマンドは、利用可能な場合に `HERDR_SOCKET_PATH`、`HERDR_BIN_PATH`、`HERDR_ACTIVE_WORKSPACE_ID`、`HERDR_ACTIVE_TAB_ID`、`HERDR_ACTIVE_PANE_ID`、`HERDR_ACTIVE_PANE_CWD` を受け取ります。Herdr が検出できる場合、シェルコマンドはフォーカス中のペインの作業ディレクトリから実行されます。
 
 Windows では、カスタムコマンド文字列に `cmd.exe /d /c` が使われるため、環境変数には `%HERDR_BIN_PATH%` 構文を使います。PowerShell 構文を実行するには、たとえば `powershell.exe -NoProfile -Command "..."` のように明示的に呼び出してください。

@@ -11,6 +11,7 @@ fn pending_popup() -> (ClientShellState, Vec<ClientShellAction>) {
         description: None,
         width: None,
         height: None,
+        menu: false,
     };
     let mut projection = snapshot();
     projection
@@ -21,6 +22,7 @@ fn pending_popup() -> (ClientShellState, Vec<ClientShellAction>) {
             binding_labels: binding.bindings.labels(),
             action: crate::protocol::ClientShellCommandAction::Popup,
             description: None,
+            menu: false,
         });
     state.set_snapshot(Box::new(projection));
     state.set_pane_surface(surface());

@@ -1009,6 +1009,10 @@ pub struct ClientShellCommand {
     pub binding_labels: Vec<String>,
     pub action: ClientShellCommandAction,
     pub description: Option<String>,
+    /// Whether the client should also list this command in its global menu.
+    /// Optional in the generation-1 JSON snapshot; older endpoints omit it.
+    #[serde(default)]
+    pub menu: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2858,6 +2862,7 @@ mod tests {
                 binding_labels: vec!["prefix+z".into()],
                 action: ClientShellCommandAction::Shell,
                 description: Some("deploy".into()),
+                menu: false,
             }],
         }));
         let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();

@@ -207,13 +207,16 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # type = "pane" opens a temporary pane and closes it when the command exits.
 # type = "popup" opens a session-modal terminal without changing the tab layout.
 # Popup width and height accept terminal cells or percentages such as "80%".
+# menu = true also lists the command in the global menu, labelled by its description.
 # On Windows, command strings run through cmd.exe /d /c.
 # [[keys.command]]
 # key = "prefix+alt+g"
 # type = "popup"
 # command = "lazygit"
+# description = "lazygit"
 # width = "80%"
 # height = "80%"
+# menu = false
 
 # Legacy indexed shortcut config is still parsed for compatibility.
 # Prefer switch_tab, switch_workspace, and focus_agent for new configs.
