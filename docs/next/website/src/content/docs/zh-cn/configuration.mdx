@@ -238,6 +238,8 @@ description = "apply layout"
 
 可以提供可选的 `description`。指定后，该描述会在按键绑定帮助面板（通过 `prefix+?` 打开）中显示，替代默认的 `'custom command'` 标签。
 
+`menu` 为可选项，默认值为 `false`。设置 `menu = true` 后，该命令也会出现在全局菜单中，并以 `description`（未设置时使用按键）作为标签。菜单中的命令按配置顺序显示在 `detach` 上方，选择后会与按下对应按键时完全相同地运行该命令。
+
 在相应值可用时，自定义命令会收到 `HERDR_SOCKET_PATH`、`HERDR_BIN_PATH`、`HERDR_ACTIVE_WORKSPACE_ID`、`HERDR_ACTIVE_TAB_ID`、`HERDR_ACTIVE_PANE_ID` 和 `HERDR_ACTIVE_PANE_CWD`。当 Herdr 能检测到聚焦窗格的工作目录时，shell 命令会从该目录运行。
 
 在 Windows 上，自定义命令字符串使用 `cmd.exe /d /c`，因此环境变量应采用 `%HERDR_BIN_PATH%` 语法。若要运行 PowerShell 语法，请显式调用它，例如 `powershell.exe -NoProfile -Command "..."`。

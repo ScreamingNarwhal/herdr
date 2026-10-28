@@ -556,6 +556,7 @@ fn popup_command_blocks_underlying_input_until_surface_or_error() {
         description: None,
         width: None,
         height: None,
+        menu: false,
     };
     let mut projection = snapshot();
     projection
@@ -566,6 +567,7 @@ fn popup_command_blocks_underlying_input_until_surface_or_error() {
             binding_labels: binding.bindings.labels(),
             action: crate::protocol::ClientShellCommandAction::Popup,
             description: None,
+            menu: false,
         });
     state.set_snapshot(Box::new(projection));
     state.set_pane_surface(surface());
@@ -609,6 +611,7 @@ fn popup_command_blocks_underlying_input_until_surface_or_error() {
         description: None,
         width: None,
         height: None,
+        menu: false,
     };
     let mut invoke = ClientShellInput::default();
     state.record_binding(crate::input::KeybindMatch::Command(binding), &mut invoke);

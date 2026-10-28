@@ -134,6 +134,9 @@ pub struct CommandKeybindConfig {
     pub width: Option<PopupSize>,
     /// Optional popup height as cells or a percentage string when type = "popup".
     pub height: Option<PopupSize>,
+    /// Also list this command in the global menu, labelled by its description. Default: false.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub menu: bool,
 }
 
 impl Default for CommandKeybindConfig {
@@ -145,6 +148,7 @@ impl Default for CommandKeybindConfig {
             description: None,
             width: None,
             height: None,
+            menu: false,
         }
     }
 }
@@ -334,6 +338,8 @@ pub struct CustomCommandKeybind {
     pub description: Option<String>,
     pub width: Option<PopupSize>,
     pub height: Option<PopupSize>,
+    /// Whether the command is also listed in the global menu.
+    pub menu: bool,
 }
 
 /// Parsed keybinds for Herdr actions.
@@ -853,6 +859,7 @@ fn append_custom_command_bindings(
             description: command.description.clone(),
             width,
             height,
+            menu: command.menu,
         });
     }
 }
@@ -2573,5 +2580,45 @@ width = "80%"
             .collect_diagnostics()
             .iter()
             .any(|diag| diag.contains("popup size on non-popup custom command")));
+    }
+
+    #[test]
+    fn custom_command_menu_defaults_to_false() {
+        let config: Config = toml::from_str(
+            r#"
+[[keys.command]]
+key = "prefix+y"
+command = "echo hello"
+"#,
+        )
+        .unwrap();
+        assert!(!config.keys.command[0].menu);
+        let keybinds = config.keybinds();
+        assert_eq!(keybinds.custom_commands.len(), 1);
+        assert!(!keybinds.custom_commands[0].menu);
+    }
+
+    #[test]
+    fn custom_command_menu_true_parses_without_diagnostics() {
+        let config: Config = toml::from_str(
+            r#"
+[[keys.command]]
+key = "prefix+a"
+type = "popup"
+command = "resume"
+description = "resume an idle session"
+menu = true
+"#,
+        )
+        .unwrap();
+        assert!(config.collect_diagnostics().is_empty());
+        assert!(config.keys.command[0].menu);
+        let keybinds = config.keybinds();
+        assert_eq!(keybinds.custom_commands.len(), 1);
+        assert!(keybinds.custom_commands[0].menu);
+        assert_eq!(
+            keybinds.custom_commands[0].action,
+            CustomCommandAction::Popup
+        );
     }
 }

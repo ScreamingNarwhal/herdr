@@ -292,6 +292,8 @@ mod tests {
             snapshot.workspaces[0].agent_status,
             crate::api::schema::AgentStatus::Unknown
         );
+        // Generation-1 snapshots predate the optional command menu flag.
+        assert!(!snapshot.commands[0].menu);
     }
 
     #[test]
