@@ -249,7 +249,7 @@ pub(crate) fn launch_remote_server_daemon_command(
     finish_start_attempt(outcome, task.remove())
 }
 
-fn finish_start_attempt(startup: io::Result<u32>, cleanup: io::Result<()>) -> io::Result<u32> {
+fn finish_start_attempt<T>(startup: io::Result<T>, cleanup: io::Result<()>) -> io::Result<T> {
     match (startup, cleanup) {
         (Err(startup), Err(cleanup)) => Err(io::Error::new(
             startup.kind(),
@@ -520,16 +520,21 @@ fn start_task(
         removed: false,
         _com,
     };
-    // Session choice is discovered for this account; never guess Session 1 or the console user.
-    if eligible_sessions(sid)?.as_slice() != [session] {
-        registration.remove()?;
-        return Err(io::Error::other(
-            "the signed-in Windows session changed before Herdr could start; retry",
-        ));
+    let outcome = (|| {
+        // Session choice is discovered for this account; never guess Session 1 or the console user.
+        if eligible_sessions(sid)?.as_slice() != [session] {
+            return Err(io::Error::other(
+                "the signed-in Windows session changed before Herdr could start; retry",
+            ));
+        }
+        let session = i32::try_from(session).map_err(io::Error::other)?;
+        unsafe { registered.RunEx(&empty, TASK_RUN_USE_SESSION_ID.0, session, &BSTR::default()) }
+            .map(|_| ())
+            .map_err(task_error)
+    })();
+    if let Err(startup) = outcome {
+        return finish_start_attempt(Err(startup), registration.remove());
     }
-    let session = i32::try_from(session).map_err(io::Error::other)?;
-    unsafe { registered.RunEx(&empty, TASK_RUN_USE_SESSION_ID.0, session, &BSTR::default()) }
-        .map_err(task_error)?;
     Ok(registration)
 }
 
@@ -824,7 +829,7 @@ mod tests {
 
     #[test]
     fn start_attempt_keeps_startup_primary_and_cleanup_failure_visible() {
-        let error = finish_start_attempt(
+        let error = finish_start_attempt::<u32>(
             Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "wrong startup identity",
@@ -835,7 +840,7 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         assert!(error.to_string().contains("wrong startup identity"));
         assert!(error.to_string().contains("scheduler unavailable"));
-        let error = finish_start_attempt(
+        let error = finish_start_attempt::<u32>(
             Ok(42),
             Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -845,7 +850,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         assert!(error.to_string().contains("cleanup denied"));
-        let error = finish_start_attempt(
+        let error = finish_start_attempt::<u32>(
             Err(io::Error::new(io::ErrorKind::TimedOut, "startup timed out")),
             Ok(()),
         )
