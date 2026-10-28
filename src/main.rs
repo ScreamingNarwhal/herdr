@@ -225,8 +225,8 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Size of the virtual terminal used when no client is attached.
 # Attached clients always use their own terminal size.
 [server]
-# Windows only: allow SSH-context startup when this account is not signed in.
-# Codex sandbox and desktop tools may be unavailable in that context.
+# Windows only: allow remote startup without Windows sign-in.
+# Codex sandbox, computer use and desktop tools may fail.
 # allow_headless_remote_start = false
 # Windows only: allow ordinary same-account clients to control an elevated server.
 # Requires a server restart.

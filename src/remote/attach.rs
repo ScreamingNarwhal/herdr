@@ -2234,14 +2234,17 @@ fn ensure_windows_remote_server_started(ssh: &RemoteSsh, remote: &RemoteHerdr) -
         },
         || {
             if !io::stdin().is_terminal() {
-                return Err(io::Error::new(io::ErrorKind::WouldBlock, "Waiting for Windows sign-in. Sign in to the host with the same Windows account, or run herdr --remote from an interactive terminal to choose a Session 0 start."));
+                return Err(io::Error::new(io::ErrorKind::WouldBlock, "Waiting for Windows sign-in. Sign in on the Windows host with the same account."));
             }
             if !announced {
-                eprintln!("The Windows account on {} is not signed in. Waiting for Windows sign-in; Herdr will retry automatically.", ssh.destination());
+                eprintln!(
+                    "This Windows account is not signed in on {}. Waiting for sign-in...",
+                    ssh.target()
+                );
                 eprintln!(
                     "Forcing Session 0 may break Codex sandbox, computer use and desktop tools."
                 );
-                eprintln!("F: force Session 0 for this attempt · Esc/Ctrl+C: cancel · otherwise keep waiting");
+                eprintln!("F: force Session 0 once · Esc/Ctrl+C: cancel");
                 announced = true;
             }
             poll_windows_sign_in_choice()
@@ -2259,14 +2262,19 @@ fn prepare_windows_remote_start(
         return Ok(());
     }
     if !supports_start()? {
-        return Err(io::Error::new(io::ErrorKind::Unsupported, "This Windows host needs an updated Herdr to wait for sign-in or choose Session 0. Update Herdr on the host, or start it from the Windows desktop, then reconnect."));
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Update Herdr on the Windows host, or start it from the Windows desktop and reconnect.",
+        ));
     }
     let mut allow_headless = false;
     loop {
         match start(allow_headless)? {
             RemoteStartStatus::Ready => return Ok(()),
             RemoteStartStatus::WindowsSignInRequired if allow_headless => {
-                return Err(io::Error::other("remote host still requires Windows sign-in after the explicit Session 0 request"));
+                return Err(io::Error::other(
+                    "The Windows host did not accept the Session 0 start.",
+                ));
             }
             RemoteStartStatus::WindowsSignInRequired => allow_headless = choose_force()?,
         }

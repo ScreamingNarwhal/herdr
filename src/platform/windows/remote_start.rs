@@ -185,7 +185,7 @@ pub(crate) fn launch_remote_server_daemon_command(
     let session = match sessions.as_slice() {
         [] => {
             require_headless_remote_start(allow_headless)?;
-            eprintln!("No signed-in Windows session is available. Starting Herdr in the SSH session; Codex sandbox and desktop tools may be unavailable.");
+            eprintln!("Starting Herdr in the SSH session; Codex sandbox, computer use and desktop tools may fail.");
             tracing::warn!("No signed-in Windows session; starting remote server in the SSH session");
             return super::launch_server_daemon_command(command);
         }
@@ -255,7 +255,9 @@ pub(crate) struct WindowsSignInRequired;
 
 impl std::fmt::Display for WindowsSignInRequired {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("Waiting for Windows sign-in. Sign in to this host with the same Windows account. Saved connections retry automatically; interactive herdr --remote can wait or offer a deliberate Session 0 start. For intentional headless startup, set server.allow_headless_remote_start = true in this host's config.")
+        formatter.write_str(
+            "Waiting for Windows sign-in. Sign in on the Windows host with the same account.",
+        )
     }
 }
 
